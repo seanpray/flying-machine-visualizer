@@ -17,7 +17,8 @@ const GAP = 3 // empty cells between machines
 export interface SceneHandle {
   setMachines(machines: Machine[], onSelect: (m: Machine | null) => void): void
   setSelected(hash: string | null): void
-  setView(azimuthDeg: number, elevationDeg: number): void
+  focusSelected(hash: string): void // recenter + zoom-to-fit a machine (arrow navigation)
+  setElevation(elevationDeg: number): void // snap up/down, keeping current azimuth
   dispose(): void
 }
 
@@ -100,6 +101,8 @@ export function createScene(container: HTMLElement): SceneHandle {
   const facing = new THREE.Vector3()
   const raycaster = new THREE.Raycaster()
   const pointer = new THREE.Vector2()
+  const _tmp = new THREE.Vector3()
+  const _dir = new THREE.Vector3()
 
   function clearMeshes() {
     for (const p of placed) {
@@ -250,18 +253,40 @@ export function createScene(container: HTMLElement): SceneHandle {
     controls.update()
   }
 
-  // Snap to a fixed azimuth/elevation around the current target, keeping zoom distance.
-  function setView(azimuthDeg: number, elevationDeg: number) {
-    const az = (azimuthDeg * Math.PI) / 180
+  // Snap to a target elevation, keeping the current azimuth + zoom distance.
+  function setElevation(elevationDeg: number) {
+    const off = _dir.copy(camera.position).sub(controls.target)
+    const dist = Math.max(1, off.length())
+    const az = Math.atan2(off.x, off.z) // preserve current azimuth
     const el = (elevationDeg * Math.PI) / 180
-    const dist = Math.max(1, camera.position.distanceTo(controls.target))
-    const d = new THREE.Vector3(
-      Math.cos(el) * Math.sin(az),
-      Math.sin(el),
-      Math.cos(el) * Math.cos(az),
+    camera.position.set(
+      controls.target.x + Math.cos(el) * Math.sin(az) * dist,
+      controls.target.y + Math.sin(el) * dist,
+      controls.target.z + Math.cos(el) * Math.cos(az) * dist,
     )
-    camera.position.copy(controls.target).addScaledVector(d, dist)
     camera.up.set(0, 1, 0)
+    controls.update()
+  }
+
+  // Recenter + zoom so this machine fits the view, keeping the current angle. (arrow nav)
+  function focusSelected(hash: string) {
+    const hit = placed.find((p) => p.machine.hash === hash)
+    if (!hit) return
+    const center = hit.box.getCenter(_tmp)
+    const size = hit.box.getSize(_dir)
+    const maxDim = Math.max(size.x, size.y, size.z, 1)
+    const dist = ((maxDim * 0.5) / Math.tan((camera.fov * Math.PI) / 360)) * 1.8
+    let dx = camera.position.x - controls.target.x
+    let dy = camera.position.y - controls.target.y
+    let dz = camera.position.z - controls.target.z
+    let len = Math.hypot(dx, dy, dz)
+    if (len < 1e-4) ((dx = 0.6), (dy = 0.7), (dz = 0.75), (len = Math.hypot(0.6, 0.7, 0.75)))
+    controls.target.copy(center)
+    camera.position.set(
+      center.x + (dx / len) * dist,
+      center.y + (dy / len) * dist,
+      center.z + (dz / len) * dist,
+    )
     controls.update()
   }
 
@@ -271,6 +296,12 @@ export function createScene(container: HTMLElement): SceneHandle {
     if (hit) {
       selectionBox.box.copy(hit.box)
       selectionBox.visible = true
+      // Pivot all camera movement around the selection: pan the rig so its center
+      // becomes controls.target (view angle + zoom unchanged -> gentle recenter).
+      const center = hit.box.getCenter(_tmp)
+      camera.position.add(_dir.subVectors(center, controls.target))
+      controls.target.copy(center)
+      controls.update()
     } else {
       selectionBox.visible = false
     }
@@ -292,6 +323,7 @@ export function createScene(container: HTMLElement): SceneHandle {
     pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
     pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
     raycaster.setFromCamera(pointer, camera)
+    raycaster.far = Infinity // occlusion pass shrinks .far; restore for picking
     const hits = raycaster.intersectObjects(blockMeshes, false)
     const hit = hits[0]
     if (hit && hit.instanceId != null) {
@@ -302,10 +334,32 @@ export function createScene(container: HTMLElement): SceneHandle {
     }
   })
 
+  // Hide a machine's floating label when blocks sit between it and the camera. CSS2D labels
+  // have no depth test, so we raycast from the camera to each label anchor and occlude.
+  // ponytail: O(labels * instances) per moving frame; throttled to ~15Hz, fine for <=400 labels.
+  let lastOcc = 0
+  let needsOcclusion = true
+  controls.addEventListener('change', () => (needsOcclusion = true))
+  function updateOcclusion() {
+    for (const p of placed) {
+      _dir.subVectors(p.label.position, camera.position)
+      const dist = _dir.length()
+      raycaster.set(camera.position, _dir.normalize())
+      raycaster.far = Math.max(0.1, dist - 0.6) // only blocks in front of the anchor
+      p.label.visible = raycaster.intersectObjects(blockMeshes, false).length === 0
+    }
+  }
+
   let raf = 0
   function animate() {
     raf = requestAnimationFrame(animate)
     controls.update()
+    const now = performance.now()
+    if (needsOcclusion && now - lastOcc > 66) {
+      updateOcclusion()
+      needsOcclusion = false
+      lastOcc = now
+    }
     renderer.render(scene, camera)
     labelRenderer.render(scene, camera)
   }
@@ -326,7 +380,8 @@ export function createScene(container: HTMLElement): SceneHandle {
   return {
     setMachines,
     setSelected,
-    setView,
+    focusSelected,
+    setElevation,
     dispose() {
       cancelAnimationFrame(raf)
       ro.disconnect()

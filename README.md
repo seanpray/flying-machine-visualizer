@@ -15,13 +15,13 @@ pnpm dev        # open the printed localhost URL
 - **Upload .data** — load machines from `.data` files (the compact binary candidate format from `../genetic-ml`). Pick one or many files; records are parsed client-side and shown as "Uploaded (N)". Rendering is capped at 400 at a time (one DOM label per machine); the header says when it's capped. `✕` clears uploads.
 - The **trigger block** (the GA-specified simulation start point) is drawn at its position as a translucent purple glowing cube (0.1 alpha, additive).
 - Each machine floats a label — archive: first 8 hash chars (full hash on hover); complex/uploaded: name/`#id` (source on hover).
-- **Click** a machine or its label → detail panel. `id` is the structural hash; `index` is the GA machine index (`candidate.id`). Archive also shows generation, origin, blocks, ticks, period, flight `shift`, trigger; uploaded shows source, index, blocks, trigger (bare `.data` candidates carry no hash or simulation metadata).
-- Blocks are **textured** (see below). Pistons / sticky pistons / observers are rotated so their directional face points the right way; legend (bottom-left) names the block types present.
+- **Click** a machine or its label → detail panel, and the camera recenters/pivots on it. `id` is the structural hash; `index` is the GA machine index (`candidate.id`). Archive also shows generation, origin, blocks, ticks, period, flight `shift`, trigger; uploaded shows source, index, blocks, trigger (bare `.data` candidates carry no hash or simulation metadata).
+- Blocks are **textured** (see below). Pistons / sticky pistons / observers are rotated so their directional face points the right way. Floating labels are depth-tested — they hide behind blocks in front of them.
 
 ## Camera
 
-- **Orbit** left-drag · **Pan** right-drag (or two-finger) · **Zoom** wheel.
-- **Snap views** (bottom-right, or keyboard): `←`/`→` cycle the four isometric corners, `↑` top-down, `↓` back to isometric. Zoom distance is preserved across snaps. (Perspective camera at isometric angles — swap to a true orthographic projection if you want zero foreshortening.)
+- **Orbit / zoom / pan** all pivot around the currently selected machine. Left-drag orbit · right-drag (or two-finger) pan · wheel zoom.
+- **Controls** (bottom-left, or keyboard): `←`/`→` step through the visible machines, recentering + framing each (also changes the selection); `↑` top-down, `↓` isometric. Elevation snaps keep the current azimuth and zoom distance.
 
 ## Textures
 

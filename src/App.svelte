@@ -2,7 +2,6 @@
   import { onMount } from 'svelte'
   import { loadMachines, loadComplexMachines, parseCompactData, type Machine } from './lib/data'
   import { createScene, type SceneHandle } from './lib/scene'
-  import { BLOCK_TYPES } from './lib/blocks'
 
   const PAGE = 100
   const UPLOAD_CAP = 400 // cap rendered uploads: one DOM label per machine gets heavy past this
@@ -22,17 +21,6 @@
 
   // Top-level tab: "Complex Examples" vs everything archive/upload ("Examples").
   const tab = $derived(mode === 'complex' ? 'complex' : 'examples')
-
-  // Legend: block types actually present in what's currently on screen.
-  const legend = $derived.by(() => {
-    const ids = new Set<number>()
-    for (const m of visible)
-      for (const b of m.candidate.blocks) ids.add(b.state & 0xff)
-    return [...ids]
-      .filter((id) => id !== 0)
-      .map((id) => BLOCK_TYPES[id] ?? { name: `id ${id}`, color: '#ff00ff' })
-      .sort((a, b) => a.name.localeCompare(b.name))
-  })
 
   function shuffle100(list: Machine[]): Machine[] {
     const a = [...list]
@@ -92,31 +80,35 @@
     pick('first')
   }
 
-  // Snap camera views. Left/right cycle the 4 isometric corners; up = top-down.
+  // Camera elevation snaps (keeping the current azimuth).
   const ISO_EL = 35 // ~true isometric elevation
   const TOP_EL = 89
-  let viewAz = $state(45)
   let viewEl = $state(ISO_EL)
 
-  function rotateView(delta: number) {
-    viewAz = (((viewAz + delta) % 360) + 360) % 360
-    if (viewEl === TOP_EL) viewEl = ISO_EL
-    handle?.setView(viewAz, viewEl)
-  }
   function isoView() {
     viewEl = ISO_EL
-    handle?.setView(viewAz, viewEl)
+    handle?.setElevation(ISO_EL)
   }
   function topView() {
     viewEl = TOP_EL
-    handle?.setView(viewAz, viewEl)
+    handle?.setElevation(TOP_EL)
+  }
+
+  // Left/right arrows step through the visible machines, centering + framing each.
+  function selectDelta(step: number) {
+    if (!visible.length) return
+    const i = selected ? visible.findIndex((m) => m.hash === selected!.hash) : -1
+    const n = visible.length
+    const next = i < 0 ? (step > 0 ? 0 : n - 1) : (i + step + n) % n
+    selected = visible[next]
+    handle?.focusSelected(visible[next].hash)
   }
 
   function onKey(e: KeyboardEvent) {
     const t = e.target as HTMLElement | null
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return
-    if (e.key === 'ArrowLeft') rotateView(-90)
-    else if (e.key === 'ArrowRight') rotateView(90)
+    if (e.key === 'ArrowLeft') selectDelta(-1)
+    else if (e.key === 'ArrowRight') selectDelta(1)
     else if (e.key === 'ArrowUp') topView()
     else if (e.key === 'ArrowDown') isoView()
     else return
@@ -255,31 +247,14 @@
   {#if error}<span class="text-xs text-red-400">{error}</span>{/if}
 </header>
 
-<!-- Legend -->
-{#if legend.length}
-  <div
-    class="absolute bottom-3 left-3 flex flex-col gap-1 rounded-lg bg-slate-900/80 p-2.5 text-xs text-slate-300"
-  >
-    {#each legend as t (t.name)}
-      <div class="flex items-center gap-2">
-        <span
-          class="inline-block h-3 w-3 rounded-sm"
-          style="background:{t.color}"
-        ></span>
-        {t.name}
-      </div>
-    {/each}
-  </div>
-{/if}
-
-<!-- Camera snap views -->
+<!-- Camera controls (bottom-left, clear of the right-side detail panel) -->
 <div
-  class="absolute bottom-3 right-3 flex items-center gap-1 rounded-lg bg-slate-900/80 p-1.5 text-xs text-slate-300"
+  class="absolute bottom-3 left-3 flex items-center gap-1 rounded-lg bg-slate-900/80 p-1.5 text-xs text-slate-300"
 >
   <button
     class="rounded px-2 py-1 hover:bg-slate-700"
-    title="Rotate view left (←)"
-    onclick={() => rotateView(-90)}>◀</button
+    title="Previous machine (←)"
+    onclick={() => selectDelta(-1)}>◀</button
   >
   <button
     class="rounded px-2 py-1 {viewEl === ISO_EL
@@ -297,10 +272,10 @@
   >
   <button
     class="rounded px-2 py-1 hover:bg-slate-700"
-    title="Rotate view right (→)"
-    onclick={() => rotateView(90)}>▶</button
+    title="Next machine (→)"
+    onclick={() => selectDelta(1)}>▶</button
   >
-  <span class="px-1 text-[10px] text-slate-500">drag-right = pan</span>
+  <span class="px-1 text-[10px] text-slate-500">◀ ▶ machines · drag = orbit</span>
 </div>
 
 <!-- Detail panel -->
