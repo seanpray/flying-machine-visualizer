@@ -1,0 +1,36 @@
+# Flyer Machine Visualizer
+
+3D viewer for the genetic-algorithm flying machines
+
+## Run
+
+```bash
+pnpm install
+pnpm dev        # open the printed localhost URL
+```
+
+- **First 100 / Last 100 / Random 100** — pick which 100 archive machines (of 800) to show. Random re-rolls each click.
+- **Upload .data** — load machines from `.data` files (the compact binary candidate format from `../genetic-ml`). Pick one or many files; records are parsed client-side and shown as "Uploaded (N)". Rendering is capped at 400 at a time (one DOM label per machine); the header says when it's capped. `✕` clears uploads.
+- Each machine floats a label — archive: first 8 hash chars (full hash on hover); uploaded: `#id` (filename on hover).
+- **Click** a machine or its label → detail panel. `id` is the structural hash; `index` is the GA machine index (`candidate.id`). Archive also shows generation, origin, blocks, ticks, period, flight `shift`, trigger; uploaded shows source, index, blocks, trigger (bare `.data` candidates carry no hash or simulation metadata).
+- Blocks are **textured** (see below). Pistons / sticky pistons / observers are rotated so their directional face points the right way; legend (bottom-left) names the block types present.
+
+## Camera
+
+- **Orbit** left-drag · **Pan** right-drag (or two-finger) · **Zoom** wheel.
+- **Snap views** (bottom-right, or keyboard): `←`/`→` cycle the four isometric corners, `↑` top-down, `↓` back to isometric. Zoom distance is preserved across snaps. (Perspective camera at isometric angles — swap to a true orthographic projection if you want zero foreshortening.)
+
+## Textures
+
+Block faces use a texture atlas built at load from `public/textures/*.png`. These are
+collected by `scripts/sync-textures.sh` (run via `pnpm sync-textures`), which prefers the
+**DABB** pack (`../DABB`, has directional arrows on pistons/observers) and falls back to
+**vanilla** (`../textures`) per texture — e.g. pistons/observers come from DABB, stone /
+glass / slime / redstone from vanilla. The resolved PNGs are committed under
+`public/textures/`, so the app runs without re-syncing. Glass is alpha-tested (opaque
+frame, clear pane); slime is translucent; if the atlas fails to load, blocks fall back to
+flat colors. To retexture, drop a new pack in and re-run `pnpm sync-textures`.
+
+```bash
+pnpm sync-data
+```
