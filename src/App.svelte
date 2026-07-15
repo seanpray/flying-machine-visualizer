@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { loadMachines, parseCompactData, type Machine } from './lib/data'
+  import { loadMachines, loadComplexMachines, parseCompactData, type Machine } from './lib/data'
   import { createScene, type SceneHandle } from './lib/scene'
   import { BLOCK_TYPES } from './lib/blocks'
 
@@ -12,11 +12,16 @@
 
   let all = $state<Machine[]>([])
   let uploaded = $state<Machine[]>([])
+  let complex = $state<Machine[]>([]) // large hand-authored examples (public/machines/)
+  let complexIdx = $state(0)
   let visible = $state<Machine[]>([])
-  let mode = $state<'first' | 'last' | 'random' | 'uploaded'>('first')
+  let mode = $state<'first' | 'last' | 'random' | 'uploaded' | 'complex'>('first')
   let selected = $state<Machine | null>(null)
   let error = $state<string | null>(null)
   let loading = $state(true)
+
+  // Top-level tab: "Complex Examples" vs everything archive/upload ("Examples").
+  const tab = $derived(mode === 'complex' ? 'complex' : 'examples')
 
   // Legend: block types actually present in what's currently on screen.
   const legend = $derived.by(() => {
@@ -50,6 +55,19 @@
     mode = 'uploaded'
     selected = null
     visible = uploaded.slice(0, UPLOAD_CAP)
+  }
+
+  // Complex tab: enter it, or (if already there) cycle to the next example. One at a time.
+  function complexTab() {
+    if (!complex.length) return
+    complexIdx = mode === 'complex' ? (complexIdx + 1) % complex.length : complexIdx
+    mode = 'complex'
+    visible = [complex[complexIdx]]
+    selected = complex[complexIdx] // "select one" — open its detail panel by default
+  }
+
+  function examplesTab() {
+    if (mode === 'complex') pick('first')
   }
 
   async function onUpload(e: Event) {
@@ -114,10 +132,15 @@
       return
     }
     window.addEventListener('keydown', onKey)
-    loadMachines()
-      .then((m) => {
-        all = m
-        pick('first')
+    Promise.all([
+      loadMachines().then((m) => (all = m)),
+      loadComplexMachines()
+        .then((c) => (complex = c))
+        .catch(() => (complex = [])), // missing examples shouldn't block the archive
+    ])
+      .then(() => {
+        if (complex.length) complexTab() // default: show/select the first complex example
+        else pick('first')
       })
       .catch((e) => (error = String(e)))
       .finally(() => (loading = false))
@@ -144,6 +167,34 @@
   class="absolute left-0 top-0 flex items-center gap-4 px-4 py-3 text-slate-200"
 >
   <h1 class="text-sm font-semibold tracking-wide">Flyer Machines</h1>
+
+  <!-- Top tabs: Complex Examples (cycle) vs Examples (archive/upload) -->
+  <div class="flex gap-1">
+    <button
+      class="rounded px-2.5 py-1 text-xs font-medium transition
+        {tab === 'complex'
+        ? 'bg-fuchsia-400 text-slate-900'
+        : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'}"
+      title="Large hand-authored machines — click to cycle through them"
+      disabled={!complex.length}
+      onclick={complexTab}
+    >
+      Complex Examples{#if mode === 'complex' && complex.length > 1}
+        &nbsp;{complexIdx + 1}/{complex.length} ↻{/if}
+    </button>
+    <button
+      class="rounded px-2.5 py-1 text-xs font-medium transition
+        {tab === 'examples'
+        ? 'bg-cyan-400 text-slate-900'
+        : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700'}"
+      title="Archive machines from ga_archive.jsonl (+ .data uploads)"
+      onclick={examplesTab}
+    >
+      Examples
+    </button>
+  </div>
+
+  {#if tab === 'examples'}
   <div class="flex gap-1">
     {#each [['first', 'First 100'], ['last', 'Last 100'], ['random', 'Random 100']] as [m, label] (m)}
       <button
@@ -183,9 +234,14 @@
       >
     {/if}
   </div>
+  {/if}
   {#if !loading && !error}
     <span class="text-xs text-slate-400">
-      {#if mode === 'uploaded'}
+      {#if mode === 'complex'}
+        {complex[complexIdx]?.candidate.name ?? complex[complexIdx]?.source} · {complex[
+          complexIdx
+        ]?.block_count.toLocaleString()} blocks
+      {:else if mode === 'uploaded'}
         showing {visible.length} of {uploaded.length} uploaded{uploaded.length >
         UPLOAD_CAP
           ? ` (cap ${UPLOAD_CAP})`
@@ -288,7 +344,8 @@
         {/each}
       {:else}
         <p class="pt-1 text-xs text-slate-500">
-          Uploaded .data — no simulation metadata.
+          {selected.origin === 'complex' ? 'Example machine' : 'Uploaded .data'} — no
+          simulation metadata.
         </p>
       {/if}
     </dl>

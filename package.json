@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "sync-data": "cp ../genetic-ml/data/outputs/ga_archive.jsonl public/ga_archive.jsonl",
+    "sync-machines": "node -e \"const fs=require('fs'),d='public/machines';fs.writeFileSync(d+'/manifest.json',JSON.stringify(fs.readdirSync(d).filter(f=>f.endsWith('.json')&&f!=='manifest.json')))\"",
     "sync-textures": "bash scripts/sync-textures.sh",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json"
   },

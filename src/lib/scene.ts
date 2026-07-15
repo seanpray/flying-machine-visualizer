@@ -59,6 +59,17 @@ export function createScene(container: HTMLElement): SceneHandle {
   selectionBox.visible = false
   scene.add(selectionBox)
 
+  // Trigger marker: the GA-specified simulation start block, as a translucent purple glow.
+  const triggerGeo = new THREE.BoxGeometry(1, 1, 1)
+  const triggerMat = new THREE.MeshBasicMaterial({
+    color: 0xb14aff,
+    transparent: true,
+    opacity: 0.5, // ponytail: 0.1 alpha as requested; additive blend does the "glow"
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  })
+  let triggerMesh: THREE.InstancedMesh | null = null
+
   // Block assets (texture atlas + per-type geometry/material). Loads async; until then
   // (or if it fails) blocks fall back to flat colors.
   let assets: BlockAssets | null = null
@@ -81,6 +92,7 @@ export function createScene(container: HTMLElement): SceneHandle {
   let blockMeshes: THREE.InstancedMesh[] = []
   let placed: Placed[] = []
   let onSelectCb: (m: Machine | null) => void = () => {}
+  let selectedHash: string | null = null
   let buildToken = 0
 
   const dummy = new THREE.Object3D()
@@ -100,6 +112,11 @@ export function createScene(container: HTMLElement): SceneHandle {
       mesh.dispose() // frees instance buffers only; shared geo/material are reused
     }
     blockMeshes = []
+    if (triggerMesh) {
+      scene.remove(triggerMesh)
+      triggerMesh.dispose()
+      triggerMesh = null
+    }
   }
 
   async function setMachines(machines: Machine[], onSelect: (m: Machine | null) => void) {
@@ -126,6 +143,7 @@ export function createScene(container: HTMLElement): SceneHandle {
 
     // One instanced draw per block id; collect placements first, then build meshes.
     const byId = new Map<number, { machine: Machine; matrix: THREE.Matrix4 }[]>()
+    const triggerMats: THREE.Matrix4[] = []
 
     machines.forEach((m, idx) => {
       const blocks = m.candidate.blocks
@@ -138,6 +156,16 @@ export function createScene(container: HTMLElement): SceneHandle {
 
       const gx = (idx % cols) * cell
       const gz = Math.floor(idx / cols) * cell
+
+      // Trigger block (simulation start), same MC->three transform as blocks.
+      const tr = m.candidate.trigger
+      triggerMats.push(
+        new THREE.Matrix4().makeTranslation(
+          gx + (tr.x - cx),
+          tr.y - cy + 0.5,
+          gz - (tr.z - cz),
+        ),
+      )
 
       const mBox = new THREE.Box3()
       for (const blk of blocks) {
@@ -196,8 +224,16 @@ export function createScene(container: HTMLElement): SceneHandle {
       blockMeshes.push(mesh)
     }
 
+    // Trigger glows (one instance per machine); not raycast so it never steals clicks.
+    triggerMesh = new THREE.InstancedMesh(triggerGeo, triggerMat, triggerMats.length)
+    triggerMesh.frustumCulled = false
+    triggerMesh.renderOrder = 2 // after opaque blocks
+    triggerMats.forEach((mtx, i) => triggerMesh!.setMatrixAt(i, mtx))
+    triggerMesh.instanceMatrix.needsUpdate = true
+    scene.add(triggerMesh)
+
     frameAll(cols, machines.length, cell)
-    setSelected(null)
+    setSelected(selectedHash) // reattach any current selection to the rebuilt meshes
   }
 
   function frameAll(cols: number, n: number, cell: number) {
@@ -230,6 +266,7 @@ export function createScene(container: HTMLElement): SceneHandle {
   }
 
   function setSelected(hash: string | null) {
+    selectedHash = hash
     const hit = placed.find((p) => p.machine.hash === hash)
     if (hit) {
       selectionBox.box.copy(hit.box)
@@ -295,6 +332,8 @@ export function createScene(container: HTMLElement): SceneHandle {
       ro.disconnect()
       clearMeshes()
       controls.dispose()
+      triggerGeo.dispose()
+      triggerMat.dispose()
       plainBox.dispose()
       for (const m of coloredMats.values()) m.dispose()
       assets?.dispose()

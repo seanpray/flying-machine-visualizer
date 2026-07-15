@@ -56,6 +56,37 @@ export async function loadMachines(
     .map((line) => JSON.parse(line) as Machine)
 }
 
+// Complex example machines: single candidate-shaped JSON objects under public/machines/,
+// listed in public/machines/manifest.json (regenerate with `pnpm sync-machines`).
+function complexToMachine(file: string, c: Candidate): Machine {
+  return {
+    hash: `complex:${file}`,
+    label: c.name ?? file,
+    source: file,
+    generation: 0,
+    origin: 'complex',
+    block_count: c.blocks.length,
+    candidate: c,
+    result: null,
+    found_at: '',
+  }
+}
+
+export async function loadComplexMachines(
+  base = import.meta.env.BASE_URL,
+): Promise<Machine[]> {
+  const res = await fetch(`${base}machines/manifest.json`)
+  if (!res.ok) return [] // no manifest -> no complex examples
+  const files = (await res.json()) as string[]
+  return Promise.all(
+    files.map(async (f) => {
+      const r = await fetch(`${base}machines/${f}`)
+      if (!r.ok) throw new Error(`Failed to load ${f}: ${r.status}`)
+      return complexToMachine(f, (await r.json()) as Candidate)
+    }),
+  )
+}
+
 // Compact binary .data format (mirrors genetic-ml/genetic_ml/compact_format.py):
 // little-endian, records concatenated to EOF.
 //   header: int32 id, int32 trigger x/y/z, uint32 block_count   (20 bytes)
